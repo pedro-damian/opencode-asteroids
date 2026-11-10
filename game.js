@@ -62,16 +62,33 @@ const RADII  = [0, 16, 30, 50];   // por tamaño 1, 2, 3
 const SPEEDS = [0, 85, 55, 32];   // velocidad base por tamaño
 const POINTS = [0, 100, 50, 20];  // puntos por tamaño
 
+// Estrella fugaz (asteroide especial)
+const COMET_SPEED     = 220; // px/s (más rápido que cualquier asteroide)
+const COMET_TTL       = 7;   // s de vida en pantalla
+const COMET_RADIUS    = 14;
+const COMET_POINTS    = 250; // puntos al destruirla
+const COMET_SPAWN_MIN = 8;   // s mínimos entre apariciones
+const COMET_SPAWN_MAX = 15;  // s máximos entre apariciones
+
 class Asteroid {
-  constructor(x, y, size = 3) {
+  constructor(x, y, size = 3, type = 'normal') {
     this.x    = x;
     this.y    = y;
     this.size = size;
-    this.radius = RADII[size];
+    this.type = type;
     this.dead = false;
 
+    if (type === 'comet') {
+      this.radius     = COMET_RADIUS;
+      this.ttl        = COMET_TTL;
+      this.trailTimer = 0;
+    } else {
+      this.radius = RADII[size];
+    }
+
     const angle = rand(0, Math.PI * 2);
-    const speed = SPEEDS[size] + rand(-15, 15);
+    const base  = type === 'comet' ? COMET_SPEED : SPEEDS[size];
+    const speed = base + rand(-15, 15);
     this.vx = Math.cos(angle) * speed;
     this.vy = Math.sin(angle) * speed;
     this.rotSpeed = rand(-1.2, 1.2);
@@ -91,10 +108,21 @@ class Asteroid {
     this.x   = wrap(this.x + this.vx * dt, W);
     this.y   = wrap(this.y + this.vy * dt, H);
     this.rot += this.rotSpeed * dt;
+
+    if (this.type !== 'comet') return;
+
+    // Estrella fugaz: estela de partículas y expiración
+    this.trailTimer -= dt;
+    if (this.trailTimer <= 0) {
+      particles.push(new Particle(this.x, this.y));
+      this.trailTimer = 0.05;
+    }
+    this.ttl -= dt;
+    if (this.ttl <= 0) this.dead = true;
   }
 
   split() {
-    if (this.size <= 1) return [];
+    if (this.type === 'comet' || this.size <= 1) return [];
     return [
       new Asteroid(this.x, this.y, this.size - 1),
       new Asteroid(this.x, this.y, this.size - 1),
@@ -103,6 +131,9 @@ class Asteroid {
 
   draw() {
     ctx.save();
+    // Estrella fugaz: se desvanece al final de su vida
+    if (this.type === 'comet')
+      ctx.globalAlpha = Math.max(0, Math.min(this.ttl / 1.5, 1));
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rot);
     ctx.strokeStyle = '#fff';
@@ -286,6 +317,7 @@ class PowerUp {
 // ── Estado del juego ──────────────────────────────────────────────────────────
 let ship, bullets, asteroids, particles;
 let powerups, powerupTimer;
+let cometTimer;
 let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
@@ -311,6 +343,15 @@ function spawnPowerUp() {
   powerups.push(new PowerUp(x, y));
 }
 
+function spawnComet() {
+  let x, y;
+  do {
+    x = rand(0, W);
+    y = rand(0, H);
+  } while (Math.hypot(x - ship.x, y - ship.y) < 100);
+  asteroids.push(new Asteroid(x, y, 1, 'comet'));
+}
+
 function initGame() {
   ship          = new Ship();
   bullets   = [];
@@ -318,6 +359,7 @@ function initGame() {
   particles = [];
   powerups  = [];
   powerupTimer = rand(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX);
+  cometTimer   = rand(COMET_SPAWN_MIN, COMET_SPAWN_MAX);
   score  = 0;
   lives  = 3;
   level  = 1;
@@ -331,6 +373,7 @@ function nextLevel() {
   particles = [];
   powerups  = [];
   powerupTimer = rand(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX);
+  cometTimer   = rand(COMET_SPAWN_MIN, COMET_SPAWN_MAX);
   ship.reset();
   spawnAsteroids(3 + level);
 }
@@ -393,6 +436,13 @@ function update(dt) {
     powerupTimer = rand(POWERUP_SPAWN_MIN, POWERUP_SPAWN_MAX);
   }
 
+  // Spawn temporal de la estrella fugaz
+  cometTimer -= dt;
+  if (cometTimer <= 0) {
+    spawnComet();
+    cometTimer = rand(COMET_SPAWN_MIN, COMET_SPAWN_MAX);
+  }
+
   // Recoger power-up
   for (const p of powerups) {
     if (dist(ship, p) < ship.radius + p.radius) {
@@ -410,7 +460,7 @@ function update(dt) {
       if (!a.dead && !b.dead && dist(b, a) < a.radius) {
         b.dead = true;
         a.dead = true;
-        score += POINTS[a.size];
+        score += a.type === 'comet' ? COMET_POINTS : POINTS[a.size];
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
       }

@@ -43,4 +43,5 @@ Luego visita `http://localhost:3000`.
 - 3 vidas con invencibilidad temporal al reaparecer (parpadeo)
 - Asteroides se parten en fragmentos más pequeños al ser destruidos
 - Partículas de explosión al destruir asteroides
-- Power-up **Velocidad**: aparece aleatoriamente cada 10–15 s; al recogerlo, el empuje de la nave se duplica durante 5 segundos
+- Power-up **Velocidad**: aparece aleatoriamente cada 10–15 s; al recogerlo, el empuje de la nave se duplica durante 10 segundos
+- **Estrella fugaz**: asteroide especial que cruza la pantalla mucho más rápido (250 puntos), suelta una estela de partículas y se desvanece a los ~7 segundos
