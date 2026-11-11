@@ -29,6 +29,7 @@ Luego visita `http://localhost:3000`.
 | `←` `→`   | Rotar nave |
 | `↑`       | Propulsar  |
 | `Espacio` | Disparar   |
+| `S`       | Cambiar de skin (apariencia de la nave) |
 
 ## Puntuación
 
@@ -45,3 +46,4 @@ Luego visita `http://localhost:3000`.
 - Partículas de explosión al destruir asteroides
 - Power-up **Velocidad**: aparece aleatoriamente cada 10–15 s; al recogerlo, el empuje de la nave se duplica durante 10 segundos
 - **Estrella fugaz**: asteroide especial que cruza la pantalla mucho más rápido (250 puntos), suelta una estela de partículas y se desvanece a los ~7 segundos
+- **Skins**: 4 apariencias de nave (Clásica, Caza, Recon, Dardo); cambia con la tecla `S` y se recuerda entre sesiones
