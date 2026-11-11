@@ -163,6 +163,7 @@ class Ship {
     this.thrusting     = false;
     this.invincible    = 3;
     this.speedBoost    = 0;
+    this.shield        = 0;
     this.shootCooldown = 0;
     this.dead          = false;
   }
@@ -172,6 +173,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.speedBoost    > 0) this.speedBoost    -= dt;
+    if (this.shield        > 0) this.shield        -= dt;
 
     const ROT   = 3.5;   // rad/s
     const THRUST = 260;  // px/s²
@@ -235,6 +237,20 @@ class Ship {
     }
 
     ctx.restore();
+
+    // Anillo del escudo (fuera de la rotación de la nave)
+    if (this.shield > 0) {
+      const fading  = this.shield < 2; // parpadeo en los últimos 2 s
+      const visible = !fading || Math.floor(this.shield * 8) % 2 === 0;
+      if (visible) {
+        const alpha = fading ? (0.35 + 0.45 * (this.shield / 2)) : 0.8;
+        ctx.strokeStyle = `rgba(63, 212, 255, ${alpha.toFixed(2)})`;
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius + 10, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
   }
 }
 
@@ -276,11 +292,13 @@ const POWERUP_SPAWN_MAX = 15;  // s máximos entre apariciones
 const POWERUP_TTL       = 10;  // s en pantalla antes de expirar
 const SPEED_BOOST_TIME  = 10;  // s de boost al recogerlo
 const SPEED_BOOST_MULT  = 2;   // multiplicador de empuje
+const SHIELD_TIME       = 8;   // s de escudo al recogerlo
 
 class PowerUp {
-  constructor(x, y) {
+  constructor(x, y, kind = 'speed') {
     this.x = x;
     this.y = y;
+    this.kind = kind;   // 'speed' | 'shield'
     this.radius = 10;
     this.ttl  = POWERUP_TTL;
     this.rot  = 0;
@@ -297,19 +315,23 @@ class PowerUp {
     // Parpadeo en los últimos 2 s antes de expirar
     if (this.ttl < 2 && Math.floor(this.ttl * 8) % 2 === 0) return;
 
+    const isShield = this.kind === 'shield';
+    const color    = isShield ? '#3fd4ff' : '#3fff7f';
+    const label    = isShield ? 'S' : 'V';
+
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rot);
-    ctx.strokeStyle = '#3fff7f';
+    ctx.strokeStyle = color;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = '#3fff7f';
+    ctx.fillStyle = color;
     ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('V', 0, 1);
+    ctx.fillText(label, 0, 1);
     ctx.restore();
   }
 }
@@ -340,7 +362,8 @@ function spawnPowerUp() {
     x = rand(0, W);
     y = rand(0, H);
   } while (Math.hypot(x - ship.x, y - ship.y) < 100);
-  powerups.push(new PowerUp(x, y));
+  const kind = Math.random() < 0.5 ? 'speed' : 'shield';
+  powerups.push(new PowerUp(x, y, kind));
 }
 
 function spawnComet() {
@@ -447,7 +470,8 @@ function update(dt) {
   for (const p of powerups) {
     if (dist(ship, p) < ship.radius + p.radius) {
       p.dead = true;
-      ship.speedBoost = SPEED_BOOST_TIME;
+      if (p.kind === 'shield') ship.shield = SHIELD_TIME;
+      else                     ship.speedBoost = SPEED_BOOST_TIME;
       explode(p.x, p.y, 4);
     }
   }
@@ -471,11 +495,25 @@ function update(dt) {
 
   // Nave vs asteroide
   if (ship.invincible <= 0) {
+    const shielded  = ship.shield > 0;
+    const fragments = [];
     for (const a of asteroids) {
+      if (a.dead) continue;
       if (dist(ship, a) < ship.radius + a.radius * 0.82) {
-        killShip();
-        break;
+        if (shielded) {
+          // El escudo absorbe el impacto: destruye el asteroide como una bala
+          a.dead = true;
+          score += a.type === 'comet' ? COMET_POINTS : POINTS[a.size];
+          explode(a.x, a.y, a.size * 5);
+          fragments.push(...a.split());
+        } else {
+          killShip();
+          break;
+        }
       }
+    }
+    if (shielded) {
+      asteroids = asteroids.filter(a => !a.dead).concat(fragments);
     }
   }
 
@@ -507,8 +545,10 @@ function drawHUD() {
 
   ctx.textAlign = 'left';
   ctx.fillText(`SCORE  ${score}`, 14, 26);
-  if (ship.speedBoost > 0)
-    drawSpeedBar();
+
+  let barY = 38;
+  if (ship.speedBoost > 0) { drawSpeedBar(barY); barY += 18; }
+  if (ship.shield > 0)     drawShieldBar(barY);
 
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
@@ -518,23 +558,42 @@ function drawHUD() {
 
 }
 
-function drawSpeedBar() {
+function drawSpeedBar(y) {
   const frac = Math.max(ship.speedBoost, 0) / SPEED_BOOST_TIME;
   const BAR_W = 100, BAR_H = 6;
 
   // Etiqueta pequeña sobre la barra
   ctx.fillStyle = 'rgba(255,255,255,0.65)';
   ctx.font = '9px monospace';
-  ctx.fillText('VELOCIDAD', 14, 38);
+  ctx.fillText('VELOCIDAD', 14, y);
 
   // Relleno interpolado verde (120) → amarillo (60) → rojo (0)
   ctx.fillStyle = `hsl(${(120 * frac).toFixed(1)}, 100%, 50%)`;
-  ctx.fillRect(14, 41, BAR_W * frac, BAR_H);
+  ctx.fillRect(14, y + 3, BAR_W * frac, BAR_H);
 
   // Marco de la barra
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 1;
-  ctx.strokeRect(14.5, 41.5, BAR_W, BAR_H);
+  ctx.strokeRect(14.5, y + 3.5, BAR_W, BAR_H);
+}
+
+function drawShieldBar(y) {
+  const frac = Math.max(ship.shield, 0) / SHIELD_TIME;
+  const BAR_W = 100, BAR_H = 6;
+
+  // Etiqueta pequeña sobre la barra
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  ctx.font = '9px monospace';
+  ctx.fillText('ESCUDO', 14, y);
+
+  // Relleno interpolado cyan (activo) → oscuro (por expirar)
+  ctx.fillStyle = `rgba(63, 212, 255, ${(0.35 + 0.65 * frac).toFixed(2)})`;
+  ctx.fillRect(14, y + 3, BAR_W * frac, BAR_H);
+
+  // Marco de la barra
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(14.5, y + 3.5, BAR_W, BAR_H);
 }
 
 function drawOverlay(title, sub) {
