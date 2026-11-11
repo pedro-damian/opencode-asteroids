@@ -163,6 +163,7 @@ class Ship {
     this.thrusting     = false;
     this.invincible    = 3;
     this.speedBoost    = 0;
+    this.tripleShot    = 0;
     this.shootCooldown = 0;
     this.dead          = false;
   }
@@ -172,6 +173,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.speedBoost    > 0) this.speedBoost    -= dt;
+    if (this.tripleShot    > 0) this.tripleShot    -= dt;
 
     const ROT   = 3.5;   // rad/s
     const THRUST = 260;  // px/s²
@@ -199,6 +201,18 @@ class Ship {
     const NOSE = 21;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
+
+    // Triple disparo: 3 balas paralelas, separadas perpendicularmente al rumbo
+    if (this.tripleShot > 0) {
+      const dx = -Math.sin(this.angle) * TRIPLE_SHOT_OFFSET;
+      const dy =  Math.cos(this.angle) * TRIPLE_SHOT_OFFSET;
+      return [
+        new Bullet(ox + dx, oy + dy, this.angle),
+        new Bullet(ox,      oy,      this.angle),
+        new Bullet(ox - dx, oy - dy, this.angle),
+      ];
+    }
+
     return [new Bullet(ox, oy, this.angle)];
   }
 
@@ -277,10 +291,21 @@ const POWERUP_TTL       = 10;  // s en pantalla antes de expirar
 const SPEED_BOOST_TIME  = 10;  // s de boost al recogerlo
 const SPEED_BOOST_MULT  = 2;   // multiplicador de empuje
 
+// Triple disparo (power-up 'T')
+const TRIPLE_SHOT_TIME   = 5;  // s de disparo triple al recogerlo
+const TRIPLE_SHOT_OFFSET = 9;  // px de separación lateral entre balas
+
+// Apariencia por tipo de power-up: letra dibujada y color
+const POWERUP_LOOK = {
+  speed:  { letter: 'V', color: '#3fff7f' },
+  triple: { letter: 'T', color: '#3fdfff' },
+};
+
 class PowerUp {
-  constructor(x, y) {
+  constructor(x, y, type = 'speed') {
     this.x = x;
     this.y = y;
+    this.type = type;
     this.radius = 10;
     this.ttl  = POWERUP_TTL;
     this.rot  = 0;
@@ -300,16 +325,16 @@ class PowerUp {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.rot);
-    ctx.strokeStyle = '#3fff7f';
+    ctx.strokeStyle = POWERUP_LOOK[this.type].color;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = '#3fff7f';
+    ctx.fillStyle = POWERUP_LOOK[this.type].color;
     ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('V', 0, 1);
+    ctx.fillText(POWERUP_LOOK[this.type].letter, 0, 1);
     ctx.restore();
   }
 }
@@ -340,7 +365,8 @@ function spawnPowerUp() {
     x = rand(0, W);
     y = rand(0, H);
   } while (Math.hypot(x - ship.x, y - ship.y) < 100);
-  powerups.push(new PowerUp(x, y));
+  const type = randInt(0, 1) === 0 ? 'speed' : 'triple';
+  powerups.push(new PowerUp(x, y, type));
 }
 
 function spawnComet() {
@@ -447,7 +473,8 @@ function update(dt) {
   for (const p of powerups) {
     if (dist(ship, p) < ship.radius + p.radius) {
       p.dead = true;
-      ship.speedBoost = SPEED_BOOST_TIME;
+      if (p.type === 'triple') ship.tripleShot = TRIPLE_SHOT_TIME;
+      else                     ship.speedBoost = SPEED_BOOST_TIME;
       explode(p.x, p.y, 4);
     }
   }
@@ -509,6 +536,8 @@ function drawHUD() {
   ctx.fillText(`SCORE  ${score}`, 14, 26);
   if (ship.speedBoost > 0)
     drawSpeedBar();
+  if (ship.tripleShot > 0)
+    drawTripleBar();
 
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
@@ -535,6 +564,26 @@ function drawSpeedBar() {
   ctx.strokeStyle = '#fff';
   ctx.lineWidth = 1;
   ctx.strokeRect(14.5, 41.5, BAR_W, BAR_H);
+}
+
+function drawTripleBar() {
+  const frac = Math.max(ship.tripleShot, 0) / TRIPLE_SHOT_TIME;
+  const BAR_W = 100, BAR_H = 6;
+  const y = ship.speedBoost > 0 ? 63 : 41; // debajo de la barra de velocidad si ambas activas
+
+  // Etiqueta pequeña sobre la barra
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  ctx.font = '9px monospace';
+  ctx.fillText('TRIPLE', 14, y - 3);
+
+  // Relleno interpolado azul (180) → amarillo (60) → rojo (0)
+  ctx.fillStyle = `hsl(${(60 + 120 * frac).toFixed(1)}, 100%, 50%)`;
+  ctx.fillRect(14, y, BAR_W * frac, BAR_H);
+
+  // Marco de la barra
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(14.5, y + 0.5, BAR_W, BAR_H);
 }
 
 function drawOverlay(title, sub) {
