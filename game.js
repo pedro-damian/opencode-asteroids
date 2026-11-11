@@ -149,6 +149,34 @@ class Asteroid {
   }
 }
 
+// ── Skins (apariencia de la nave) ─────────────────────────────────────────────
+// verts: silueta vectorial (~20 px de nariz, igual escala que la clásica;
+// la hitbox NO depende de la forma, usa ship.radius). tailX/tailW: origen y
+// semiancho de la llama del propulsor. thrust: "r, g, b" para la llama.
+const SKINS = [
+  { name: 'CLÁSICA', color: '#fff',    thrust: '255, 130, 0',  tailX: -8,  tailW: 4,   verts: [[20, 0], [-12, -9], [-7, 0], [-12, 9]] },
+  { name: 'CAZA',    color: '#40e0ff', thrust: '64, 224, 255', tailX: -10, tailW: 2.5, verts: [[22, 0], [-10, -7], [-4, -2.5], [-4, 2.5], [-10, 7]] },
+  { name: 'RECON',   color: '#ff5fa0', thrust: '255, 95, 160', tailX: -8,  tailW: 4,   verts: [[16, 0], [-13, -11], [-8, -4], [-8, 4], [-13, 11]] },
+  { name: 'DARDO',   color: '#ffd94a', thrust: '255, 217, 74', tailX: -9,  tailW: 3,   verts: [[22, 0], [-10, -5], [-9, 0], [-10, 5]] },
+];
+
+const SKIN_KEY = 'asteroids.skin';
+let skinIndex      = 0;
+let skinFlashTimer = 0;   // muestra el nombre del skin en el HUD al cambiar
+
+try {
+  const saved = localStorage.getItem(SKIN_KEY);
+  if (saved !== null) skinIndex = wrap(parseInt(saved, 10) || 0, SKINS.length);
+} catch { /* sin almacenamiento disponible */ }
+
+function currentSkin() { return SKINS[skinIndex]; }
+
+function nextSkin() {
+  skinIndex      = wrap(skinIndex + 1, SKINS.length);
+  skinFlashTimer = 1.5;
+  try { localStorage.setItem(SKIN_KEY, String(skinIndex)); } catch { /* sin almacenamiento */ }
+}
+
 // ── Ship ──────────────────────────────────────────────────────────────────────
 class Ship {
   constructor() { this.reset(); }
@@ -210,16 +238,16 @@ class Ship {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
-    ctx.strokeStyle = '#fff';
+    const skin       = currentSkin();
+    ctx.strokeStyle = skin.color;
     ctx.lineWidth   = 1.5;
     ctx.lineJoin    = 'round';
 
-    // Silueta clásica: triángulo con muesca trasera
+    // Silueta del skin activo
     ctx.beginPath();
-    ctx.moveTo( 20,  0);   // nariz
-    ctx.lineTo(-12, -9);   // ala izquierda
-    ctx.lineTo( -7,  0);   // muesca trasera
-    ctx.lineTo(-12,  9);   // ala derecha
+    ctx.moveTo(skin.verts[0][0], skin.verts[0][1]);
+    for (let i = 1; i < skin.verts.length; i++)
+      ctx.lineTo(skin.verts[i][0], skin.verts[i][1]);
     ctx.closePath();
     ctx.stroke();
 
@@ -227,10 +255,10 @@ class Ship {
     if (this.thrusting && Math.random() > 0.35) {
       const boost = this.speedBoost > 0;
       ctx.beginPath();
-      ctx.moveTo(-8, boost ? -6 : -4);
-      ctx.lineTo(-8 - (boost ? rand(14, 26) : rand(6, 14)), 0);
-      ctx.lineTo(-8, boost ?  6 :  4);
-      ctx.strokeStyle = boost ? 'rgba(255, 130, 0, 0.95)' : 'rgba(255, 130, 0, 0.85)';
+      ctx.moveTo(skin.tailX, boost ? -skin.tailW * 1.5 : -skin.tailW);
+      ctx.lineTo(skin.tailX - (boost ? rand(14, 26) : rand(6, 14)), 0);
+      ctx.lineTo(skin.tailX, boost ?  skin.tailW * 1.5 :  skin.tailW);
+      ctx.strokeStyle = `rgba(${skin.thrust}, ${boost ? 0.95 : 0.85})`;
       ctx.stroke();
     }
 
@@ -396,6 +424,10 @@ function killShip() {
 
 // ── Update ────────────────────────────────────────────────────────────────────
 function update(dt) {
+  // Cambiar de skin (disponible en cualquier estado)
+  if (pressed('KeyS')) nextSkin();
+  if (skinFlashTimer > 0) skinFlashTimer -= dt;
+
   if (state === 'gameover') {
     if (pressed('Space')) initGame();
     particles.forEach(p => p.update(dt));
@@ -485,17 +517,18 @@ function update(dt) {
 
 // ── Draw ──────────────────────────────────────────────────────────────────────
 function drawLifeIcon(x, y) {
+  const skin = currentSkin();
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(-Math.PI / 2);
-  ctx.strokeStyle = '#fff';
+  ctx.strokeStyle = skin.color;
   ctx.lineWidth   = 1.2;
   ctx.lineJoin    = 'round';
+  const S = 0.45;   // misma proporción que el ícono clásico (nariz a 9 px)
   ctx.beginPath();
-  ctx.moveTo( 9,  0);
-  ctx.lineTo(-6, -5);
-  ctx.lineTo(-3,  0);
-  ctx.lineTo(-6,  5);
+  ctx.moveTo(skin.verts[0][0] * S, skin.verts[0][1] * S);
+  for (let i = 1; i < skin.verts.length; i++)
+    ctx.lineTo(skin.verts[i][0] * S, skin.verts[i][1] * S);
   ctx.closePath();
   ctx.stroke();
   ctx.restore();
@@ -512,6 +545,15 @@ function drawHUD() {
 
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
+
+  // Nombre del skin activo al cambiar (se desvanece al final)
+  if (skinFlashTimer > 0) {
+    ctx.fillStyle    = currentSkin().color;
+    ctx.font         = 'bold 13px monospace';
+    ctx.globalAlpha  = Math.min(1, skinFlashTimer / 0.5);
+    ctx.fillText(currentSkin().name, W / 2, 46);
+    ctx.globalAlpha  = 1;
+  }
 
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
